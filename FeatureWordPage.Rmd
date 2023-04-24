@@ -1,0 +1,523 @@
+---
+title: "Ipsos Data Processing"
+output: html_document
+date: "2023-03-08"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(tidytext)
+library(stringr)
+library(tm)
+library(corpus)
+library(wordcloud)
+library(glmnet)
+library(randomForest)
+library(hunspell)
+library(data.table)
+```
+
+# Read cleaned data
+```{r}
+datamerged_cleaned_raw <- read.csv("ipsos_all_merged_cleaned.csv")
+```
+
+```{r}
+## assign data to a new variable
+data <- datamerged_cleaned_raw
+```
+
+# Get unique data
+## Users with demographic data
+```{r}
+unique_user <- data %>% distinct(panelist_id, gender_char, age_group_char)
+```
+## Groups
+```{r}
+unique_id <- data %>% distinct(panelist_id)
+unique_gender <- data %>% distinct(gender_char)
+unique_age <- data %>% distinct(age_group_char)
+```
+
+# Tokenisation
+```{r}
+# Get Content
+
+URLcontent <- data %>%
+  select(panelist_id, gender_char, age_group_char, PageUrl) %>% 
+  mutate(content = str_split_fixed(PageUrl, "/", 2)[,2]) %>% 
+  mutate(content = str_replace_all(content, regex("[^a-zA-Z]"), " "))
+```
+
+```{r}
+# stemming function
+
+stem_hunspell <- function(term) {
+    # look up the term in the dictionary
+    stems <- hunspell_stem(term)[[1]]
+    if (length(stems) == 0) {
+        stem <- term}
+    else {
+        stem <- stems[[length(stems)]]}
+    stem
+}
+```
+
+```{r}
+# Unnest words from contents and stem
+
+tokens <- URLcontent %>%
+  unnest_tokens(word, content) %>% 
+  mutate(word = text_tokens(word, stemmer = stem_hunspell))
+```
+
+# Word Importance
+## Gender
+### Word frequency
+```{r}
+# Filter by gender and sort
+
+male_word_freq <- tokens %>%
+  group_by(gender_char, word) %>%
+  count() %>%
+  filter(gender_char == "male", nchar(word) > 2) %>% 
+  arrange(desc(n))
+
+female_word_freq <- tokens %>%
+  group_by(gender_char, word) %>%
+  count() %>%
+  filter(gender_char == "female", nchar(word) > 2) %>% 
+  arrange(desc(n))
+```
+
+### Most frequent words
+```{r}
+# Get words with the most frequencies in each gender
+
+gender_top_word <- 
+  male_word_freq %>%
+  ungroup() %>%
+  top_n(500) %>% 
+  select(word) %>% 
+  rbind(female_word_freq %>%
+          ungroup() %>%
+          top_n(500) %>%
+          select(word)) %>% 
+  distinct(word)
+```
+
+### DTM
+```{r}
+# Get the matrix of word frequencies
+
+gender_word_DTM <- 
+  tokens %>%
+  filter(word %in% gender_top_word$word) %>%
+  group_by(word) %>%
+  ungroup() %>%
+  count(panelist_id, word) %>%
+  cast_dtm(document = panelist_id, term = word, value = n)
+
+gender_word_Mat <- 
+  as.matrix(gender_word_DTM) %>%
+  as_tibble() %>%
+  bind_cols(panelist_id = gender_word_DTM$dimnames$Docs) %>%
+  select(panelist_id, everything())
+
+gender_word_freq <- 
+  unique_id %>%
+  left_join(gender_word_Mat %>% mutate(panelist_id = as.double(panelist_id)), by = "panelist_id") %>%
+  replace(is.na(.), 0) 
+```
+
+### Feature Selection
+```{r}
+# Random forest classifier
+
+rf_gender_word <- randomForest(x=gender_word_freq[,2:length(gender_word_freq)],y=factor(unique_user$gender_char))
+
+# Importance of features
+
+Imp_gender_word <- importance(rf_gender_word)
+
+ImpDf_gender_word <- data.frame(cbind(word = rownames(Imp_gender_word), score = (Imp_gender_word[,1])))
+row.names(ImpDf_gender_word) <- c(1:length(Imp_gender_word))
+ImpDf_gender_word$score <- as.double(ImpDf_gender_word$score)
+
+ImpSort_gender_word <- ImpDf_gender_word %>% arrange(desc(score))
+```
+
+```{r}
+# Select top 50% important words
+
+ImpTop_gender_word <- ImpSort_gender_word %>%
+  top_n(nrow(ImpSort_gender_word)/2)
+```
+
+### Output
+```{r}
+word_imp_gender <- gender_word_freq %>%
+      select(panelist_id, all_of(ImpTop_gender_word$word))
+```
+
+```{r}
+write_csv(word_imp_gender, file = "WordImportance_Gender.csv")
+```
+
+## Age
+### Word frequency
+```{r}
+# Filter by age and sort
+
+age15_word_freq <- tokens %>%
+  group_by(age_group_char, word) %>%
+  count() %>%
+  filter(age_group_char == "15-24", nchar(word) > 2) %>% 
+  arrange(desc(n))
+
+age25_word_freq <- tokens %>%
+  group_by(age_group_char, word) %>%
+  count() %>%
+  filter(age_group_char == "25-34", nchar(word) > 2) %>% 
+  arrange(desc(n))
+
+age35_word_freq <- tokens %>%
+  group_by(age_group_char, word) %>%
+  count() %>%
+  filter(age_group_char == "35-44", nchar(word) > 2) %>% 
+  arrange(desc(n))
+
+age45_word_freq <- tokens %>%
+  group_by(age_group_char, word) %>%
+  count() %>%
+  filter(age_group_char == "45-54", nchar(word) > 2) %>% 
+  arrange(desc(n))
+
+age55_word_freq <- tokens %>%
+  group_by(age_group_char, word) %>%
+  count() %>%
+  filter(age_group_char == "55-64", nchar(word) > 2) %>% 
+  arrange(desc(n))
+
+age65_word_freq <- tokens %>%
+  group_by(age_group_char, word) %>%
+  count() %>%
+  filter(age_group_char == "65plus", nchar(word) > 2) %>% 
+  arrange(desc(n))
+```
+
+### Most frequent words
+```{r}
+# Get words with the most frequencies in each age group
+
+age_top_freq <- 
+  age15_word_freq %>%
+  ungroup() %>%
+  top_n(500) %>% 
+  select(word) %>% 
+  rbind(age25_word_freq %>%
+          ungroup() %>%
+          top_n(500) %>%
+          select(word)) %>% 
+  rbind(age35_word_freq %>%
+          ungroup() %>%
+          top_n(500) %>%
+          select(word)) %>% 
+  rbind(age45_word_freq %>%
+          ungroup() %>%
+          top_n(500) %>%
+          select(word)) %>% 
+  rbind(age55_word_freq %>%
+          ungroup() %>%
+          top_n(500) %>%
+          select(word)) %>% 
+  rbind(age65_word_freq %>%
+          ungroup() %>%
+          top_n(500) %>%
+          select(word)) %>% 
+  distinct(word)
+```
+
+### DTM
+```{r}
+# Get the matrix of word frequencies
+
+age_word_DTM <- tokens %>%
+  filter(word %in% age_top_freq$word) %>%
+  group_by(word) %>%
+  ungroup() %>%
+  count(panelist_id, word) %>%
+  cast_dtm(document = panelist_id, term = word, value = n)
+
+age_word_Mat <- as.matrix(age_word_DTM) %>%
+  as_tibble() %>%
+  bind_cols(panelist_id = age_word_DTM$dimnames$Docs) %>%
+  select(panelist_id, everything())
+
+age_word_freq <- unique_id %>%
+  left_join(age_word_Mat %>% mutate(panelist_id = as.double(panelist_id)), by = "panelist_id") %>%
+  replace(is.na(.), 0) 
+
+```
+
+### Feature Selection
+```{r}
+# Random forest classifier
+
+rf_age_word <- randomForest(x=age_word_freq[,2:length(age_word_freq)],y=factor(unique_user$age_group_char)) 
+
+# Importance of features
+
+Imp_age_word <- importance(rf_age_word)
+
+ImpDf_age_word <- data.frame(cbind(word = rownames(Imp_age_word), score = (Imp_age_word[,1])))
+row.names(ImpDf_age_word) <- c(1:length(Imp_age_word))
+ImpDf_age_word$score <- as.double(ImpDf_age_word$score)
+
+ImpSort_age_word <- ImpDf_age_word %>% arrange(desc(score))
+```
+
+```{r}
+# Select top 50% important words
+
+ImpTop_age_word <- ImpSort_age_word %>%
+  top_n(nrow(ImpSort_age_word)/2)
+```
+
+### Output
+```{r}
+word_imp_age <- age_word_freq %>%
+      select(panelist_id, all_of(ImpTop_age_word$word))
+```
+
+```{r}
+write_csv(word_imp_age, file = "Output/WordImportance_Age.csv")
+```
+
+# Get domain
+```{r}
+DomainPage <- data %>%
+  select(gender_char, age_group_char, panelist_id, PageDomain) %>% 
+  mutate(Domain = gsub("^m\\.", "", PageDomain)) %>% 
+  mutate(Domain = str_remove_all(Domain, "www\\.|\\.com|\\.co|\\.uk|en\\.|org|\\."))
+```
+
+# Page Domain Importance
+## Gender
+### Page frequency
+```{r}
+# Filter by gender and sort
+
+male_page_freq <- DomainPage %>%
+  group_by(gender_char, Domain) %>%
+  count() %>%
+  filter(gender_char == "male") %>% 
+  arrange(desc(n))
+
+female_page_freq <- DomainPage %>%
+  group_by(gender_char, Domain) %>%
+  count() %>%
+  filter(gender_char == "female") %>% 
+  arrange(desc(n))
+```
+
+### Most frequent pages
+```{r}
+# Get pages with the most frequencies in each gender
+gender_top_page <- 
+  male_page_freq %>%
+  ungroup() %>%
+  top_n(500) %>% 
+  select(Domain) %>% 
+  rbind(female_page_freq %>%
+          ungroup() %>%
+          top_n(500) %>%
+          select(Domain)) %>% 
+  distinct(Domain)
+```
+
+### DTM
+```{r}
+# Get the matrix of page frequencies
+
+gender_page_DTM <- DomainPage %>%
+  filter(Domain %in% gender_top_page$Domain) %>%
+  group_by(Domain) %>%
+  ungroup() %>%
+  count(panelist_id, Domain) %>%
+  cast_dtm(document = panelist_id, term = Domain, value = n)
+
+gender_page_Mat <- as.matrix(gender_page_DTM) %>%
+  as_tibble() %>%
+  bind_cols(panelist_id = gender_page_DTM$dimnames$Docs) %>%
+  select(panelist_id, everything())
+
+gender_page_freq <- unique_id %>%
+  left_join(gender_page_Mat %>% mutate(panelist_id = as.double(panelist_id)), by = "panelist_id") %>%
+  replace(is.na(.), 0) 
+```
+
+### Feature Selection
+```{r}
+# Random forest classifier
+
+rf_gender_page <- randomForest(x=gender_page_freq[,2:length(gender_page_freq)],y=factor(unique_user$gender_char))
+
+# Importance of features
+
+Imp_gender_page <- importance(rf_gender_page)
+
+ImpDf_gender_page <- data.frame(cbind(Domain = rownames(Imp_gender_page), score = (Imp_gender_page[,1])))
+row.names(ImpDf_gender_page) <- c(1:length(Imp_gender_page))
+ImpDf_gender_page$score <- as.double(ImpDf_gender_page$score)
+
+ImpSort_gender_page <- ImpDf_gender_page %>% arrange(desc(score))
+```
+
+
+```{r}
+# Select top 50% important pages
+
+ImpTop_gender_page <- ImpSort_gender_page %>%
+  top_n(nrow(ImpSort_gender_page)/2)
+```
+
+### Output
+```{r}
+page_imp_gender <- gender_page_freq %>%
+      select(panelist_id, all_of(ImpTop_gender_page$Domain))
+```
+
+```{r}
+write_csv(page_imp_gender, file = "Output/PageImportance_Gender.csv")
+```
+
+## Age
+### Page frequency
+```{r}
+# Filter by age and sort
+
+age15_page_freq <- DomainPage %>%
+  group_by(age_group_char, Domain) %>%
+  count() %>%
+  filter(age_group_char == "15-24") %>% 
+  arrange(desc(n))
+
+age25_page_freq <- DomainPage %>%
+  group_by(age_group_char, Domain) %>%
+  count() %>%
+  filter(age_group_char == "25-34") %>% 
+  arrange(desc(n))
+
+age35_page_freq <- DomainPage %>%
+  group_by(age_group_char, Domain) %>%
+  count() %>%
+  filter(age_group_char == "35-44") %>% 
+  arrange(desc(n))
+
+age45_page_freq <- DomainPage %>%
+  group_by(age_group_char, Domain) %>%
+  count() %>%
+  filter(age_group_char == "45-54") %>% 
+  arrange(desc(n))
+
+age55_page_freq <- DomainPage %>%
+  group_by(age_group_char, Domain) %>%
+  count() %>%
+  filter(age_group_char == "55-64") %>% 
+  arrange(desc(n))
+
+age65_page_freq <- DomainPage %>%
+  group_by(age_group_char, Domain) %>%
+  count() %>%
+  filter(age_group_char == "65plus") %>% 
+  arrange(desc(n))
+```
+
+### Most frequent pages
+```{r}
+# Get pages with the most frequencies in each age group
+
+age_top_page <- 
+  age15_page_freq %>%
+  ungroup() %>%
+  top_n(500) %>% 
+  select(Domain) %>% 
+  rbind(age25_page_freq %>%
+          ungroup() %>%
+          top_n(500) %>%
+          select(Domain)) %>% 
+  rbind(age35_page_freq %>%
+          ungroup() %>%
+          top_n(500) %>%
+          select(Domain)) %>% 
+  rbind(age45_page_freq %>%
+          ungroup() %>%
+          top_n(500) %>%
+          select(Domain)) %>% 
+  rbind(age55_page_freq %>%
+          ungroup() %>%
+          top_n(500) %>%
+          select(Domain)) %>% 
+  rbind(age65_page_freq %>%
+          ungroup() %>%
+          top_n(500) %>%
+          select(Domain)) %>% 
+  distinct(Domain)
+```
+
+### DTM
+```{r}
+# Get the matrix of page frequencies
+
+age_page_DTM <- DomainPage %>%
+  filter(Domain %in% age_top_page$Domain) %>%
+  group_by(Domain) %>%
+  ungroup() %>%
+  count(panelist_id, Domain) %>%
+  cast_dtm(document = panelist_id, term = Domain, value = n)
+
+age_page_Mat <- as.matrix(age_page_DTM) %>%
+  as_tibble() %>%
+  bind_cols(panelist_id = age_page_DTM$dimnames$Docs) %>%
+  select(panelist_id, everything())
+
+age_page_freq <- unique_id %>%
+  left_join(age_page_Mat %>% mutate(panelist_id = as.double(panelist_id)), by = "panelist_id") %>%
+  replace(is.na(.), 0) 
+```
+
+### Feature Selection
+```{r}
+# Random forest classifier
+
+rf_age_page <- randomForest(x=age_page_freq[,2:length(age_page_freq)],y=factor(unique_user$age_group_char))
+
+# Importance of features
+Imp_age_page <- importance(rf_age_page)
+
+ImpDf_age_page <- data.frame(cbind(Domain = rownames(Imp_age_page), score = (Imp_age_page[,1])))
+row.names(ImpDf_age_page) <- c(1:length(Imp_age_page))
+ImpDf_age_page$score <- as.double(ImpDf_age_page$score)
+
+ImpSort_age_page <- ImpDf_age_page %>% arrange(desc(score))
+```
+
+```{r}
+# Select top 50% important pages
+
+ImpTop_age_page <- ImpSort_age_page %>%
+  top_n(nrow(ImpSort_age_page)/2)
+```
+
+
+### Output
+```{r}
+page_imp_age <- age_page_freq %>%
+      select(panelist_id, all_of(ImpTop_age_page$Domain))
+```
+
+```{r}
+write_csv(page_imp_age, file = "PageImportance_Age.csv")
+```

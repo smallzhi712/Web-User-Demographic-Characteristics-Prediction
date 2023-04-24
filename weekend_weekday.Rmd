@@ -1,0 +1,50 @@
+---
+title: "Untitled"
+output: html_document
+date: "2023-03-15"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+#import library
+library(tidyverse)
+library(readr)
+library(dplyr)
+```
+
+```{r}
+setwd("~/Desktop/ipsos")
+#import data
+ipsos1 <- read_csv("ipsos_all_merged_cleaned.csv")%>%
+  na.omit()%>%mutate(is_weekend = ifelse(weekdays(as.Date(Date)) %in% c("Saturday","Sunday"), 1, 0))
+
+```
+
+```{r}
+#get the total number of web visited for each person
+ipsos_total<-ipsos1%>%
+  group_by(panelist_id)%>%
+  summarise(total_num=n())
+
+ipsos_weekend<-ipsos1%>%
+  filter(is_weekend==1)%>%
+  group_by(panelist_id)%>%
+  summarise(weekend_total=n())
+
+ipsos_weekday<-ipsos1%>%
+  filter(is_weekend==0)%>%
+  group_by(panelist_id)%>%
+  summarise(weekday_total=n())
+
+tend <- left_join(ipsos_total,ipsos_weekend, by = "panelist_id")
+final<-tendday<-left_join(tend,ipsos_weekday,by = "panelist_id")%>%
+  mutate_all(~replace_na(., 0))%>%
+  mutate(weekend_ratio=weekend_total/total_num,weekday_ratio=weekday_total/total_num)%>%
+  select(panelist_id,weekend_ratio,weekday_ratio)
+
+write_csv(final, "final_output_with_variable_weekend_weekday.csv")
+```
+

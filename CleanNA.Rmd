@@ -1,0 +1,36 @@
+---
+title: "Ipsos Data Cleaning"
+output: html_document
+date: "2023-03-21"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(tidytext)
+```
+
+# Read data
+```{r}
+datamerged_raw <- read.csv("ipsos_all_merged.csv", na.strings = c("", "NA")) # read empty cells as NAs
+```
+
+# Clean data
+## Observe NA values
+```{r}
+names(which(colSums(is.na(datamerged_raw)) > 0)) # find columns with NA Values
+colMeans(is.na(datamerged_raw)) # proportion of NAs in each column
+View(datamerged_raw%>% filter(if_any(everything(), is.na))) # rows with NA values
+```
+## Filter out NA and dates before 2022-12
+```{r}
+datamerged_cleaned <- datamerged_raw %>%
+  select(panelist_id, gender_char, age_group_char, social_grade_char, Date, Time, PageDomain, PageUrl) %>% # select useful columns
+  drop_na() %>% # drop NA values
+  filter(Date >= "2022-12-01") # keep data only after 2022-12-01
+```
+
+## Save cleaned data
+```{r}
+write_csv(datamerged_cleaned, "ipsos_all_merged_cleaned.csv")
+```

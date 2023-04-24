@@ -1,0 +1,483 @@
+---
+title: "IPSOS_Yongxi"
+output: html_document
+date: "2023-03-13"
+---
+```{r}
+library(dplyr)
+library(tidyr)
+library(foreach)
+library(doParallel)
+library(doSNOW)
+library(tidyverse)
+```
+
+
+# Contrust variable 4: num_web_visited
+```{r}
+setwd("~/Desktop/IPSOS")
+raw_data= read_csv("ipsos_all_merged.csv")
+nrow(raw_data)
+```
+
+```{r}
+# Check gender
+check_gender=ipsos %>%
+  group_by(panelist_id) %>%
+  summarise (gender_char) 
+
+gender<-ipsos%>%
+  group_by(panelist_id)%>%
+  summarise(gender=gender_char)%>%
+  distinct(panelist_id,gender)
+
+ipsos %>%
+  group_by(panelist_id) %>%
+  summarise(gender_char) %>%
+  ungroup() %>%
+  group_by(unique(panelist_id)) %>%
+  summarise(gender_char)
+
+# Number of users 
+raw_data$panelist_id=as.numeric(raw_data$panelist_id)
+length(unique(ipsos$panelist_id))
+
+# Unique dates in raw data
+raw_data$Date=as.Date(raw_data$Date)
+unique_date= unique(raw_data$Date) #Dates outside 2022 Dec?
+unique_date=sort(as.Date(unique_date))
+unique_date= format(unique_date, "%Y-%m-%d")
+
+if (anyNA(check_gender)) {
+  print("The dataframe contains missing values.")
+} else {
+  print("The dataframe does not contain missing values.")
+}
+
+```
+
+
+## Variable: num_web_visited--> How often does he/she go online?
+```{r}
+num_web_id_date_raw = raw_data %>%
+  group_by(panelist_id,Date) %>%
+  summarise(num_web_visited=length(PageDomain),.groups="keep")
+
+# pivot the num_web_id_date
+num_web_visited <- pivot_wider(num_web_id_date_raw, names_from = Date, values_from = "num_web_visited", values_fill = NA)
+
+# Sort the columns by date 
+# convert column names to dates
+col_dates <- as.Date(names(num_web_visited)[-1])
+
+# get the indices that sort the dates
+sort_indices <- order(col_dates)
+
+# reorder the columns based on the sorted indices
+df_sorted <- num_web_visited[, c(1, sort_indices + 1)]
+
+# Delete the unwanted dates
+
+selected_dates <- c("2022-12-01", "2022-12-02", "2022-12-03", "2022-12-04", "2022-12-05", "2022-12-06", "2022-12-07", "2022-12-08", "2022-12-09", "2022-12-10", "2022-12-11", "2022-12-12", "2022-12-13", "2022-12-14", "2022-12-15", "2022-12-16", "2022-12-17", "2022-12-18", "2022-12-19", "2022-12-20", "2022-12-21", "2022-12-22", "2022-12-23", "2022-12-24", "2022-12-25", "2022-12-26", "2022-12-27", "2022-12-28", "2022-12-29", "2022-12-30", "2022-12-31")
+num_web_visited <- select(df_sorted, panelist_id, all_of(selected_dates))
+
+# Sum of frequency online
+num_web_visited$sum <- rowSums(num_web_visited[, -1],na.rm=TRUE)
+
+```
+
+## Variable: num_web_id_date_unique --> How often does he/she go online in weekday VS. weekend?
+```{r}
+# create a sequence of dates for December 2022
+dates <- seq(as.Date("2022-12-01"), as.Date("2022-12-31"), by = "day")
+
+# create a data frame with the dates
+date_df <- data.frame(Date = dates)
+
+# add a new column that specifies the day of the week for each date
+date_df$DayOfWeek <- weekdays(date_df$Date)
+
+# classify each date as a weekday or a weekend day
+date_df$WeekdayOrWeekend <- ifelse(date_df$DayOfWeek %in% c("Saturday", "Sunday"), "Weekend", "Weekday")
+
+# Filter the weekday and weekend dates
+weekday=date_df%>%
+  filter(WeekdayOrWeekend=="Weekday")
+weekend=date_df%>%
+  filter(WeekdayOrWeekend=="Weekend")
+nrow(weekday)+nrow(weekend)
+
+# How often does he/she goes online in weekday
+selected_dates <-as.character(weekday$Date)
+x= select(num_web_visited, panelist_id, all_of(selected_dates))
+x$sum=rowSums(x[,-1],na.rm=TRUE)
+num_web_visited$weekday = x$sum
+
+# How often does he/she goes online in weekend?
+selected_dates <-as.character(weekend$Date)
+x= select(num_web_visited, panelist_id, all_of(selected_dates))
+x$sum=rowSums(x[,-1],na.rm=TRUE)
+num_web_visited$weekend = x$sum
+
+
+num_web_visited[is.na(num_web_visited)]=0
+
+# Sum of frequency online
+write_csv(num_web_visited, "num_web_visited.csv")
+read_csv("num_web_visited.csv")
+nrow(num_web_visited)
+```
+
+## Variable: num_web_id_date --> How likely does he/she go online?
+```{r}
+# create a new dataframe with each cell divided by the sum
+num_web_visited_prob <- num_web_visited
+num_web_visited_prob[, 2:ncol(num_web_visited)] <-num_web_visited_prob[, 2:ncol(num_web_visited)]/num_web_visited_prob$sum
+num_web_visited_prob $ weekday <- num_web_visited$weekday/num_web_visited$sum
+num_web_visited_prob $ weekend <- num_web_visited$weekend/num_web_visited$sum
+write_csv(num_web_visited_prob, "num_web_visited_prob.csv", row.names = FALSE)
+```
+
+## Variable: num_web_id_date_unique --> How many different website he/she visited?
+```{r}
+num_web_unique_raw = raw_data %>%
+  group_by(panelist_id,Date) %>%
+  summarise(num_web_visited=length(unique(PageDomain)),.groups="keep")
+
+
+
+
+# pivot the num_web_id_date
+num_web_unique <- pivot_wider(num_web_unique_raw, names_from = Date, values_from = "num_web_visited", values_fill = NA)
+
+# Sort the columns by date 
+# convert column names to dates
+col_dates <- as.Date(names(num_web_unique)[-1])
+
+# get the indices that sort the dates
+sort_indices <- order(col_dates)
+
+# reorder the columns based on the sorted indices
+num_web_unique <- num_web_unique[, c(1, sort_indices + 1)]
+
+# Delete the unwanted dates
+
+selected_dates <- c("2022-12-01", "2022-12-02", "2022-12-03", "2022-12-04", "2022-12-05", "2022-12-06", "2022-12-07", "2022-12-08", "2022-12-09", "2022-12-10", "2022-12-11", "2022-12-12", "2022-12-13", "2022-12-14", "2022-12-15", "2022-12-16", "2022-12-17", "2022-12-18", "2022-12-19", "2022-12-20", "2022-12-21", "2022-12-22", "2022-12-23", "2022-12-24", "2022-12-25", "2022-12-26", "2022-12-27", "2022-12-28", "2022-12-29", "2022-12-30", "2022-12-31")
+num_web_unique <- select(num_web_unique, panelist_id, all_of(selected_dates))
+num_web_unique$sum <- rowSums(num_web_unique[, -1],na.rm=TRUE)
+
+# How often does he/she visit different website in weekday
+selected_dates <-as.character(weekday$Date)
+x= select(num_web_unique, panelist_id, all_of(selected_dates))
+x$sum=rowSums(x[,-1],na.rm=TRUE)
+num_web_unique$weekday = x$sum
+
+# How often does he/she goes online in weekend?
+selected_dates <-as.character(weekend$Date)
+x= select(num_web_unique, panelist_id, all_of(selected_dates))
+x$sum=rowSums(x[,-1],na.rm=TRUE)
+num_web_unique$weekend = x$sum
+
+# Sum of frequency online
+write_csv(num_web_unique, "num_web_unique.csv", row.names = FALSE)
+read_csv("num_web_unique.csv")
+```
+
+## Variable: num_web_id_date_unique --> How likely does he/she visited different website?
+```{r}
+# create a new data frame with each cell divided by the sum
+num_web_unique_prob <- num_web_unique
+num_web_unique_prob[, 2:ncol(num_web_unique_prob)] <-num_web_unique_prob[, 2:ncol(num_web_unique_prob)]/num_web_unique_prob$sum
+num_web_visited_prob $ weekday <- num_web_unique_prob$weekday/num_web_unique_prob$sum
+num_web_visited_prob $ weekend <- num_web_unique_prob$weekend/num_web_unique_prob$sum
+write_csv(num_web_unique_prob, "num_web_unique_prob.csv", row.names = FALSE)
+read_csv("num_web_unique_prob.csv")
+
+```
+
+## Katherine's
+
+```{r}
+ipsos1 <- ipsos%>%
+  na.omit()%>%mutate(is_weekend = ifelse(weekdays(as.Date(Date)) %in% c("Saturday","Sunday"), 1, 0))
+
+```
+
+```{r}
+ipsos_total<-ipsos1%>%
+  group_by(panelist_id)%>%
+  summarise(total_num=n())
+
+ipsos_weekend<-ipsos1%>%
+  filter(is_weekend==1)%>%
+  group_by(panelist_id)%>%
+  summarise(weekend_total=n())
+
+ipsos_weekday<-ipsos1%>%
+  filter(is_weekend==0)%>%
+  group_by(panelist_id)%>%
+  summarise(weekday_total=n())
+
+tend <- left_join(ipsos_total,ipsos_weekend, by = "panelist_id")
+final<-tendday<-left_join(tend,ipsos_weekday,by = "panelist_id")%>%
+  mutate_all(~replace_na(., 0))%>%
+  mutate(weekend_ratio=weekend_total/total_num,weekday_ratio=weekday_total/total_num)%>%
+  select(panelist_id,weekend_ratio,weekday_ratio)
+
+write_csv(final, "final_output_with_variable_weekend_weekday.csv")
+```
+
+
+
+## Nat's codes
+```{r}
+ipsos=raw_data
+ipsos$Time=as.character(ipsos$Time)
+
+pb <- txtProgressBar(min=0, max = nrow(ipsos),style = 3)
+Time_added = c()
+for (i in 1:nrow(ipsos)) {
+  setTxtProgressBar(pb, i)
+  
+  time_components <- as.numeric(strsplit(ipsos$Time[i], split=":")[[1]])
+                        
+  Time_added[i] = time_components[1] * 60 * 60 + time_components[2] * 60 + time_components[3]
+}
+
+ipsos$Time_added = Time_added
+```
+
+
+
+```{r}
+#write_csv(ipsos,"total_duration.csv")
+#ipsos = read_csv("total_duration.csv")
+
+total_duration <- ipsos %>%
+  arrange(panelist_id, Date, Time) %>%
+  group_by(panelist_id, Date) %>%
+  mutate(web_duration = lead(Time_added) - Time_added) %>% 
+  mutate(`0-5`=if_else((web_duration>0 & web_duration<=5),1,0)) %>%
+  mutate(`6-20`=if_else((web_duration>5 & web_duration<=20),1,0)) %>%
+  mutate(`21-120`=if_else((web_duration>20 & web_duration<=120),1,0)) %>%
+  mutate(`121-600`=if_else((web_duration>120 & web_duration<=600),1,0)) %>%
+  mutate(`600-3600`=if_else((web_duration>600 & web_duration<=3600),1,0)) %>%
+  mutate(`>3600`=if_else((web_duration>3600),1,0)) %>%
+  mutate(total_duration = sum(web_duration[is.numeric(web_duration)], na.rm = TRUE))
+
+count_duration <- total_duration %>%
+  group_by(panelist_id) %>%
+  summarise(`0-5`=sum(`0-5`,na.rm=TRUE),`6-20`=sum(`6-20`,na.rm=TRUE),`21-120`=sum(`21-120`,na.rm=TRUE),`121-600`=sum(`121-600`,na.rm=TRUE),`600-3600`=sum(`600-3600`,na.rm=TRUE), `>3600`=sum(`>3600`,na.rm=TRUE))
+
+write_csv(count_duration,'count_duration.csv')
+```
+
+```{r}
+# Prepare gender for merging
+gender=raw_data%>%
+  group_by(panelist_id)%>%
+  summarise(gender=gender_char)%>%
+  distinct(panelist_id,gender)
+
+# Prepare age for merging
+age=raw_data%>%
+  group_by(panelist_id)%>%
+  summarise(age_group=age_group_char)%>%
+  distinct(panelist_id,age_group)
+
+age_new = rbind(c("15-24",1),
+                c("25-34", 2),
+                c("35-44",3),
+                c("45-54",4),
+                c("55-64",5),
+                c("65plus",5))
+age_new= as.data.frame(age_new)
+age_new$V1 =as.character(age_new$V1)
+colnames(age_new)=c("age_group","age_order")
+age=merge(age, age_new,by="age_group")
+unique(age$age_group)
+
+# Prepare social status for mergeing
+social_status=raw_data%>%
+  group_by(panelist_id,)%>%
+  summarise(social_grade=social_grade_char)%>%
+  distinct(panelist_id,social_grade)
+colnames(social_status)=c("panelist_id","social_status")
+  
+unique(raw_data$social_grade_char)
+social_status_new =rbind(c("ab",1),
+                         c("de",2),
+                         c("c1",3),
+                         c("c2",4))
+social_status_new= as.data.frame(social_status_new)
+colnames(social_status_new)=c("social_status","social_status_order")
+social_status=merge(social_status, social_status_new, by="social_status")
+```
+
+## Merge the variables (Both age and gender)
+```{r}
+count_duration=read_csv("count_duration.csv")
+colnames(count_duration)<-paste(colnames(count_duration),"count_duration",sep="_")
+colnames(count_duration)[1]<-"panelist_id"
+
+num_web_visited=read_csv("num_web_visited.csv")
+colnames(num_web_visited)<-paste(colnames(num_web_visited),"num_web_visited",sep="_")
+colnames(num_web_visited)[1]<-"panelist_id"
+
+weekend=read_csv("final_output_with_variable_weekend_weekday.csv")
+colnames(weekend)<-paste(colnames(weekend),"final_output_with_variable_weekend_weekday",sep="_")
+colnames(weekend)[1]<-"panelist_id"
+
+peak_time=read_csv("final_output_with_variable_peak_time.csv")
+colnames(peak_time)<-paste(colnames(peak_time),"final_output_with_variable_peak_time",sep="_")
+colnames(peak_time)[1]<-"panelist_id"
+
+time_spent_per=read_csv("time_visited_per.csv")
+colnames(time_spent_per)<-paste(colnames(time_spent_per),"time_visited_per",sep="_")
+colnames(time_spent_per)[1]<-"panelist_id"
+
+PageFrequency_Age=read_csv("PageFrequency_Age.csv")
+colnames(PageFrequency_Age)<-paste(colnames(PageFrequency_Age),"PageFrequency_Age",sep="_")
+colnames(PageFrequency_Age)[1]<-"panelist_id"
+
+PageFrequency_Gender=read_csv("PageFrequency_Gender.csv")
+colnames(PageFrequency_Gender)<-paste(colnames(PageFrequency_Gender),"PageFrequency_Gender",sep="_")
+colnames(PageFrequency_Gender)[1]<-"panelist_id"
+
+WordFrequency_Age=read_csv("WordFrequency_Age.csv")
+colnames(WordFrequency_Age)<-paste(colnames(WordFrequency_Age),"WordFrequency_Age",sep="_")
+colnames(WordFrequency_Age)[1]<-"panelist_id"
+
+WordFrequency_Gender=read_csv("WordFrequency_Gender.csv")
+colnames(WordFrequency_Gender)<-paste(colnames(WordFrequency_Gender),"WordFrequency_Gender",sep="_")
+colnames(WordFrequency_Gender)[1]<-"panelist_id"
+
+# merge_1 = num_web_visited and gender
+merge_1=merge(gender, num_web_visited, by="panelist_id")
+nrow(merge_1)
+
+# merge_2 = merge_1 and weekend
+merge_2=merge(merge_1,weekend,by="panelist_id")
+nrow(merge_2)
+
+# merge_3 = merge_2 and PageFrequency_Age
+merge_3=merge(merge_2,PageFrequency_Age, by="panelist_id")
+nrow(merge_3)
+
+# merge_4 = merge_3 and PageFrequency_Gender
+merge_4=merge(merge_3,PageFrequency_Gender, by="panelist_id")
+nrow(merge_4)
+
+# merge_5 = merge_4 and WordFrequency_Age
+merge_5=merge(merge_4,WordFrequency_Age, by="panelist_id")
+nrow(merge_5)
+
+# merge_6 = merge_5 and WordFrequency_Gender
+merge_6=merge(merge_5,WordFrequency_Gender, by="panelist_id")
+nrow(merge_6)
+
+# merge_7 = merge_6 and WordFrequency_Gender
+merge_7=merge(merge_6,count_duration, by="panelist_id")
+nrow(merge_7)
+
+# merge_8 = merge_7 and peak_time
+merge_8=merge(merge_7,peak_time, by="panelist_id")
+nrow(merge_8)
+
+merge_9= merge(merge_8,age, by="panelist_id")
+
+write_csv(merge_9,"data_final.csv")
+ipsos_data_merged = read_csv("data_final.csv",show_col_types = FALSE)
+
+# upper bound of the number of columns
+ncol(count_duration)+ncol(num_web_visited)+ncol(weekend)+ncol(peak_time)+ncol(time_spent_per)+ncol(PageFrequency_Age)+ncol(PageFrequency_Gender)+ncol(WordFrequency_Age)+ncol(WordFrequency_Gender)
+
+
+```
+
+## All variables (Age)
+```{r}
+PageImportance_Age=read_csv("PageImportance_Age.csv")
+colnames(PageImportance_Age)<-paste(colnames(PageImportance_Age),"PageImportance_Age",sep="_")
+colnames(PageImportance_Age)[1]<-"panelist_id"
+
+PageImportance_Gender=read_csv("PageImportance_Gender.csv")
+colnames(PageImportance_Gender)<-paste(colnames(PageImportance_Gender),"PageImportance_Gender",sep="_")
+colnames(PageImportance_Gender)[1]<-"panelist_id"
+
+WordImportance_Age=read_csv("WordImportance_Age.csv")
+colnames(WordImportance_Age)<-paste(colnames(WordImportance_Age),"WordImportance_Age",sep="_")
+colnames(WordImportance_Age)[1]<-"panelist_id"
+
+WordImportance_Gender=read_csv("WordImportance_Gender.csv")
+colnames(WordImportance_Gender)<-paste(colnames(WordImportance_Gender),"WordImportance_Gender",sep="_")
+colnames(WordImportance_Gender)[1]<-"panelist_id"
+
+merge_1=merge(gender, age, by="panelist_id")
+nrow(merge_1)
+
+merge_2=merge(merge_1,weekend,by="panelist_id")
+nrow(merge_2)
+
+merge_3=merge(merge_2,count_duration, by="panelist_id")
+nrow(merge_3)
+
+merge_4=merge(merge_3,peak_time, by="panelist_id")
+nrow(merge_4)
+
+merge_5=merge(merge_4,num_web_visited, by="panelist_id")
+nrow(merge_5)
+
+merge_6=merge(merge_5,PageImportance_Age, by="panelist_id")
+nrow(merge_6)
+
+merge_7=merge(merge_6,WordImportance_Age, by="panelist_id")
+nrow(merge_7)
+
+# checking 
+is.na(merge_7)
+any(is.na(merge_7))
+sum(is.na(merge_7$account_WordImportance_Age))
+
+# writing csv
+write_csv(merge_7, "final_data_age.csv")
+final_data_age = read_csv("final_data_age.csv")
+final_data_age= merge(final_data_age,social_status, by="panelist_id")
+write_csv(final_data_age, "final_data_age.csv")
+```
+
+## All variables (Gender)
+```{r}
+# Age dataset 
+# merge_1 = num_web_visited and gender
+merge_1=merge(gender, age, by="panelist_id")
+nrow(merge_1)
+
+# merge_2 = merge_1 and weekend
+merge_2=merge(merge_1,weekend,by="panelist_id")
+nrow(merge_2)
+
+# merge_3 = merge_6 and WordFrequency_Gender
+merge_3=merge(merge_2,count_duration, by="panelist_id")
+nrow(merge_3)
+
+# merge_4 = merge_7 and peak_time
+merge_4=merge(merge_3,peak_time, by="panelist_id")
+nrow(merge_4)
+
+merge_5=merge(merge_4,num_web_visited, by="panelist_id")
+nrow(merge_5)
+
+merge_6=merge(merge_5,PageImportance_Gender, by="panelist_id")
+nrow(merge_6)
+
+merge_7=merge(merge_6,WordImportance_Gender, by="panelist_id")
+nrow(merge_7)
+
+write_csv(merge_7, "final_data_gender.csv")
+final_data_gender = read_csv("final_data_gender.csv")
+final_data_gender= merge(final_data_gender,social_status, by="panelist_id")
+write_csv(final_data_gender, "final_data_gender.csv")
+
+```
+

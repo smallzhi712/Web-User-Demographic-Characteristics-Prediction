@@ -1,0 +1,145 @@
+---
+title: "Untitled"
+author: "Lynn Yao"
+date: "3/10/2023"
+output: html_document
+---
+
+```{r}
+library(chron)
+library(lubridate)
+library(dplyr)
+```
+
+
+```{r}
+#setwd('/Users/lynnlynn/Downloads')
+#data <- read.csv('ipsos_all_merged.csv')
+# data <- read.csv('ipsos_all_merged_cleaned.csv')
+# data <- na.omit(data)
+# 
+# #6-12 morning
+# #12-18 afternoon
+# #18-24 evening
+# #0-6 midnight
+# #Extract hours
+# hour <- as.numeric(substr(data$Time, 1, 2))
+# which(is.na(hour))
+# data %>% mutate(hour = hour) -> data
+# length(which(is.na(data$hour))) #19
+# 
+# #6-12 morning
+# #12-18 afternoon
+# #18-24 evening
+# #0-6 midnight
+# morning <- ifelse(data$hour >= 6 & data$hour < 12, 1, 0)
+# afternoon <- ifelse(data$hour >= 12 & data$hour < 18, 1, 0)
+# evening <- ifelse((data$hour >= 18 & data$hour < 24), 1, 0)
+# night <- ifelse(data$hour >= 0  & data$hour < 6, 1, 0)
+# data %>% mutate(morning = morning, afternoon = afternoon, evening = evening, night = night) -> data
+# 
+# data %>% group_by(panelist_id) %>%
+#   summarise(morning_online_frequency = sum(morning),
+#             afternoon_online_frequency = sum(afternoon),
+#             evening_online_frequency = sum(evening),
+#             night_online_frequency = sum(night),
+#             all_time = sum(morning_online_frequency,afternoon_online_frequency,
+#                            evening_online_frequency,night_online_frequency)) -> time
+# 
+# time %>% left_join(data, by = 'panelist_id') %>%
+#   select(panelist_id, gender_char, age_group_char, morning_online_frequency, afternoon_online_frequency, evening_online_frequency, night_online_frequency, all_time) -> df_long
+# 
+# df_long %>% mutate(morning_per = morning_online_frequency/all_time,
+#                    afternoon_per = afternoon_online_frequency/all_time,
+#                    evening_per = evening_online_frequency/all_time,
+#                    night_per = night_online_frequency/all_time) -> df_long
+# 
+# df_long %>% group_by(age_group_char) %>%
+#   summarise(morning_per = mean(morning_per),
+#             afternoon_per = mean(afternoon_per),
+#             evening_per = mean(evening_per),
+#             night_per = mean(night_per))
+
+```
+```{r}
+# by 3 hours interval
+#1: 0-3
+#2: 3-6
+#3: 6-9
+#4: 9-12
+#5: 12-15
+#6: 15-18
+#7: 18-21
+#8: 21-24
+#setwd('/Users/lynnlynn/Downloads')
+#data <- read.csv('ipsos_all_merged.csv')
+#read in data
+data <- read.csv('ipsos_all_merged_cleaned.csv')
+data <- na.omit(data)
+
+#change the col Time in hour form
+hour <- as.numeric(substr(data$Time, 1, 2))
+which(is.na(hour))
+data %>% mutate(hour = hour) -> data
+length(which(is.na(data$hour))) #19
+
+#categorize the time by three hour interval
+zero_to_three <- ifelse(data$hour >= 0 & data$hour < 3, 1, 0)
+three_to_six <- ifelse(data$hour >= 3 & data$hour < 6, 1, 0)
+six_to_nine <- ifelse((data$hour >= 6 & data$hour < 9), 1, 0)
+nine_to_12 <- ifelse(data$hour >= 9  & data$hour < 12, 1, 0)
+twelve_to_15<- ifelse(data$hour >= 12 & data$hour < 15, 1, 0)
+fifteen_to_18 <- ifelse(data$hour >= 15 & data$hour < 18, 1, 0)
+eighteen_to_21 <- ifelse((data$hour >= 18 & data$hour < 21), 1, 0)
+twentyone_to_24 <- ifelse(data$hour >= 21  & data$hour < 24, 1, 0)
+data %>% mutate(zero_to_three = zero_to_three, three_to_six = three_to_six, six_to_nine = six_to_nine, nine_to_12 = nine_to_12,twelve_to_15=twelve_to_15, fifteen_to_18=fifteen_to_18, eighteen_to_21=eighteen_to_21, twentyone_to_24=twentyone_to_24) -> data
+
+#get frequency for each time interval
+data %>% group_by(panelist_id) %>%
+  summarise(zero_to_three_freq = sum(zero_to_three),
+            three_to_six_freq = sum(three_to_six),
+            six_to_nine_freq = sum(six_to_nine),
+            nine_to_12_freq = sum(nine_to_12),
+            twelve_to_15_freq = sum(twelve_to_15),
+            fifteen_to_18_freq = sum(fifteen_to_18),
+            eighteen_to_21_freq = sum(eighteen_to_21),
+            twentyone_to_24_freq = sum(twentyone_to_24),
+            all_time = sum(zero_to_three_freq,three_to_six_freq,six_to_nine_freq,
+            nine_to_12_freq,twelve_to_15_freq,fifteen_to_18_freq,eighteen_to_21_freq,twentyone_to_24_freq)) -> time
+
+#merge data to have age info
+data<-data%>%select(panelist_id,age_group_char)
+distinct(left_join(time,data,by="panelist_id"))->df_long
+
+#get percentage for each time interval
+df_long %>% mutate(zero_to_three_per = zero_to_three_freq/all_time,
+                   three_to_six_per = three_to_six_freq/all_time,
+                   six_to_nine_per = six_to_nine_freq/all_time,
+                   nine_to_12_per = nine_to_12_freq/all_time,
+                   twelve_to_15_per = twelve_to_15_freq/all_time,
+                   fifteen_to_18_per = fifteen_to_18_freq/all_time,
+                   eighteen_to_21_per = eighteen_to_21_freq/all_time,
+                   twentyone_to_24_per = twentyone_to_24_freq/all_time
+                   
+                   ) -> df_long
+
+#show result in age group
+df_long %>% group_by(age_group_char) %>%
+  summarise(zero_to_three_per = mean(zero_to_three_per),
+                   three_to_six_per = mean(three_to_six_per),
+                   six_to_nine_per = mean(six_to_nine_per),
+                   nine_to_12_per = mean(nine_to_12_per),
+                   twelve_to_15_per = mean(twelve_to_15_per),
+                   fifteen_to_18_per = mean(fifteen_to_18_per),
+                   eighteen_to_21_per = mean(eighteen_to_21_per),
+                   twentyone_to_24_per = mean(twentyone_to_24_per))
+
+#output for adding variable
+final_output<-df_long%>%
+  select(panelist_id,age_group_char,zero_to_three_per , three_to_six_per,six_to_nine_per ,nine_to_12_per ,twelve_to_15_per ,fifteen_to_18_per,eighteen_to_21_per ,twentyone_to_24_per )
+
+#write csv
+write.csv(final_output, "final_output_with_variable_peak_time.csv", row.names = FALSE)
+
+```
+
